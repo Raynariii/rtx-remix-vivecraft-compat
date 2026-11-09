@@ -1403,6 +1403,32 @@ public class RemixRenderer {
         }
     }
 
+    // remix-vivecraft-compat: reused by presentIntermediateVk, render thread only.
+    private final PresentInfo intermediatePresentInfo = new PresentInfo();
+
+    /**
+     * remix-vivecraft-compat: ends the current Remix frame without touching the
+     * swapchain, so the next {@code Submit} renders a new frame. The runtime renders
+     * one frame per {@code Present}; a second {@code Submit} before it returns the
+     * first image again, which is why every VR eye pass but the last ends its own
+     * Remix frame here. The pass's composite has already sampled the interop image,
+     * so GL signals that it is done with it, exactly as {@link #presentFrameVk} does.
+     */
+    public void presentIntermediateVk() {
+        GlInterop interop = requireInterop();
+        interop.signalDone();
+        PresentInfo info = intermediatePresentInfo;
+        info.hwndOverride = 0;
+        info.skipVulkanSwapchain = 1;
+        info.interopFlipY = 1;
+        info.clientDoneSemaphore_ValueToWait = interop.getClientDoneSemaphoreValue();
+        info.disableCpuWaitForExternalSemaphores = 0;
+        try (ProfileScope ignored = ProfileScope.begin("Remix.Present")) {
+            remixApi.present(info);
+        }
+        submitFrameCalled = false;
+    }
+
     private void faultInRemixCall() {
         boolean insideJvm = FAULT_IN_REMIX_CALL.equals("jvm");
         if (!insideJvm && !FAULT_IN_REMIX_CALL.equals("runtime")) {
@@ -1436,7 +1462,8 @@ public class RemixRenderer {
         try (ProfileScope ignored = ProfileScope.begin("Interop.VKToGL")) {
             // must be called after Submit(), which allocates the image
             InteropInfo interopInfo = remixApi.dxvkGetInteropInfo();
-            com.nvidia.rtxremix.minecraft.vr.VrCompat.onInteropImage(interopInfo.width, interopInfo.height); // remix-vivecraft-compat
+            com.nvidia.rtxremix.minecraft.vr.VrCompat.onInteropImage( // remix-vivecraft-compat
+                    interopInfo.width, interopInfo.height, interopInfo.dxvkDoneSemaphore_ValueToWait);
             interopGlVk.recreateImagesIf(interopInfo);
 
             // to blit, we need to wait for VK to finish writing into GPU image

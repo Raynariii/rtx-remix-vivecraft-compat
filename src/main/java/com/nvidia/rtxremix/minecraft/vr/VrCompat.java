@@ -12,6 +12,8 @@ import com.nvidia.rtxremix.RemixAPI;
 import com.nvidia.rtxremix.minecraft.RemixRenderer;
 import com.nvidia.rtxremix.minecraft.RtxRemixMod;
 import com.nvidia.rtxremix.minecraft.weather.RemixWeatherRenderer;
+import net.fabricmc.fabric.api.client.command.v2.ClientCommandManager;
+import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.fabricmc.loader.api.FabricLoader;
@@ -72,6 +74,9 @@ public final class VrCompat {
     private static boolean dumpThisFrame;
     private static int vrFramesLogged;
     private static long lastSignature = Long.MIN_VALUE;
+    private static int lastFramePassCount;
+    private static boolean stereoPresentFailed;
+    private static final VrOverlay VR_OVERLAY = new VrOverlay();
     private static String lastEyeSize;
     private static int lastInteropW = -1;
     private static int lastInteropH = -1;
@@ -115,7 +120,10 @@ public final class VrCompat {
         final Matrix4f remixProj = new Matrix4f();
         int submitIndex;
         int interopW, interopH;
+        long vkDone = -1;
         boolean overlay;
+        String composite = "-";
+        boolean endedRemixFrame;
         int fbo = -1;
         final int[] viewport = new int[4];
 
@@ -129,7 +137,10 @@ public final class VrCompat {
             pureProjection = false;
             submitIndex = 0;
             interopW = interopH = 0;
+            vkDone = -1;
             overlay = false;
+            composite = "-";
+            endedRemixFrame = false;
             fbo = -1;
         }
     }
@@ -148,20 +159,22 @@ public final class VrCompat {
         CONFIG.load();
 
         cycleModeKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-                "key.rtxremix.vr.cycleCameraMode", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_KP_7, "category.rtxremix.vr"));
+                "key.rtxremix.vr.cycleCameraMode", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_F6, "category.rtxremix.vr"));
         dumpKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-                "key.rtxremix.vr.dumpFrame", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_KP_8, "category.rtxremix.vr"));
+                "key.rtxremix.vr.dumpFrame", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_F9, "category.rtxremix.vr"));
         denoiseKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-                "key.rtxremix.vr.toggleTemporal", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_KP_9, "category.rtxremix.vr"));
+                "key.rtxremix.vr.toggleTemporal", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_F10, "category.rtxremix.vr"));
         projectionKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-                "key.rtxremix.vr.cycleProjection", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_KP_4, "category.rtxremix.vr"));
+                "key.rtxremix.vr.cycleProjection", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_F7, "category.rtxremix.vr"));
         ClientTickEvents.END_CLIENT_TICK.register(VrCompat::onClientTick);
+        registerCommands();
 
-        LOGGER.info(P + "remix-vivecraft-compat stage 0+1 | mod {} | Vivecraft {} | {}",
+        LOGGER.info(P + "remix-vivecraft-compat stage 0+1 (per-eye present, VR composite) | mod {} | Vivecraft {} | {}",
                 RtxRemixMod.getModVersion(), vivecraft.version(), runtimeIdentity());
         LOGGER.info(P + "config: {}", CONFIG);
-        LOGGER.info(P + "hotkeys: Numpad7 camera mode, Numpad4 projection source, Numpad8 frame dump, "
-                + "Numpad9 denoiser+upscaler off/on");
+        LOGGER.info(P + "hotkeys (rebindable, Controls > RTX Remix VR): F6 camera mode, F7 projection source, "
+                + "F9 frame dump, F10 denoiser+upscaler off/on; commands: /remixvr mode|projection|dump|temporal|"
+                + "stereo|mask|status");
     }
 
     private static String runtimeIdentity() {
@@ -178,24 +191,68 @@ public final class VrCompat {
 
     private static void onClientTick(MinecraftClient client) {
         while (cycleModeKey.wasPressed()) {
-            CONFIG.cameraMode = CONFIG.cameraMode.next();
-            CONFIG.save();
-            announce(client, "camera mode -> " + CONFIG.cameraMode);
+            cycleMode(client);
         }
         while (projectionKey.wasPressed()) {
-            CONFIG.projection = CONFIG.projection == VrCompatConfig.ProjectionSource.REBUILD
-                    ? VrCompatConfig.ProjectionSource.RAW
-                    : VrCompatConfig.ProjectionSource.REBUILD;
-            CONFIG.save();
-            announce(client, "projection source -> " + CONFIG.projection);
+            cycleProjection(client);
         }
         while (dumpKey.wasPressed()) {
-            dumpRequested = true;
-            announce(client, "frame dump requested");
+            requestDump(client);
         }
         while (denoiseKey.wasPressed()) {
             toggleTemporal(client);
         }
+    }
+
+    private static void cycleMode(MinecraftClient client) {
+        CONFIG.cameraMode = CONFIG.cameraMode.next();
+        CONFIG.save();
+        announce(client, "camera mode -> " + CONFIG.cameraMode);
+    }
+
+    private static void cycleProjection(MinecraftClient client) {
+        CONFIG.projection = CONFIG.projection == VrCompatConfig.ProjectionSource.REBUILD
+                ? VrCompatConfig.ProjectionSource.RAW
+                : VrCompatConfig.ProjectionSource.REBUILD;
+        CONFIG.save();
+        announce(client, "projection source -> " + CONFIG.projection);
+    }
+
+    private static void requestDump(MinecraftClient client) {
+        dumpRequested = true;
+        announce(client, "frame dump requested");
+    }
+
+    private static void toggleStereo(MinecraftClient client) {
+        CONFIG.stereoPresent = !CONFIG.stereoPresent;
+        stereoPresentFailed = false;
+        CONFIG.save();
+        announce(client, "per-eye Remix frame (stereoPresent) -> " + CONFIG.stereoPresent);
+    }
+
+    private static void toggleMask(MinecraftClient client) {
+        CONFIG.overlayDepthMask = !CONFIG.overlayDepthMask;
+        CONFIG.save();
+        announce(client, "VR composite keeps GUI/hands (overlayDepthMask) -> " + CONFIG.overlayDepthMask);
+    }
+
+    /** Chat commands: work from Vivecraft's in-headset keyboard and without spare keys. */
+    private static void registerCommands() {
+        ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> dispatcher.register(
+                ClientCommandManager.literal("remixvr")
+                        .then(ClientCommandManager.literal("mode").executes(c -> run(VrCompat::cycleMode)))
+                        .then(ClientCommandManager.literal("projection").executes(c -> run(VrCompat::cycleProjection)))
+                        .then(ClientCommandManager.literal("dump").executes(c -> run(VrCompat::requestDump)))
+                        .then(ClientCommandManager.literal("temporal").executes(c -> run(VrCompat::toggleTemporal)))
+                        .then(ClientCommandManager.literal("stereo").executes(c -> run(VrCompat::toggleStereo)))
+                        .then(ClientCommandManager.literal("mask").executes(c -> run(VrCompat::toggleMask)))
+                        .then(ClientCommandManager.literal("status").executes(c -> run(
+                                client -> announce(client, "config: " + CONFIG))))));
+    }
+
+    private static int run(java.util.function.Consumer<MinecraftClient> action) {
+        action.accept(MinecraftClient.getInstance());
+        return 1;
     }
 
     private static void announce(MinecraftClient client, String message) {
@@ -340,14 +397,66 @@ public final class VrCompat {
         PASSES[passCount - 1].submitIndex = submitsThisFrame;
     }
 
-    /** {@code RemixRenderer.blitVkImageToGL}: interop image size after Submit. */
-    public static void onInteropImage(int width, int height) {
+    /**
+     * {@code RemixRenderer.blitVkImageToGL}: interop image size and the Vulkan-done
+     * timeline value after Submit. The value advances once per rendered Remix frame,
+     * so two passes with the same value got the same image.
+     */
+    public static void onInteropImage(int width, int height, long vkDoneValue) {
         if (!initialized || passCount == 0) {
             return;
         }
         PassRecord r = PASSES[passCount - 1];
         r.interopW = width;
         r.interopH = height;
+        r.vkDone = vkDoneValue;
+    }
+
+    private static PassRecord currentVrPass() {
+        if (!initialized || !CONFIG.enabled || passCount == 0) {
+            return null;
+        }
+        PassRecord r = PASSES[passCount - 1];
+        return !r.vanilla && vivecraft.isVrActive() ? r : null;
+    }
+
+    /**
+     * {@code RtxRemixMod.submitRemixFrameIfReady}: draws the composite for a VR eye
+     * pass. Returns false to let upstream's full-screen overlay run.
+     */
+    public static boolean renderOverlay(int remixTexture) {
+        PassRecord r = currentVrPass();
+        if (r == null || !CONFIG.overlayDepthMask) {
+            if (r != null) {
+                r.composite = "FULL";
+            }
+            return false;
+        }
+        VR_OVERLAY.render(remixTexture);
+        r.composite = "MASKED";
+        return true;
+    }
+
+    /**
+     * {@code RtxRemixMod.submitRemixFrameIfReady}, after the composite: ends the Remix
+     * frame after every VR eye pass except the frame's last, which the regular
+     * present ends. Without this the runtime renders once per present and every
+     * later eye gets the first eye's image.
+     */
+    public static void afterComposite(RemixRenderer renderer) {
+        PassRecord r = currentVrPass();
+        if (r == null || !CONFIG.stereoPresent || stereoPresentFailed || renderer == null
+                || r.submitIndex == 0 || passCount >= lastFramePassCount) {
+            return;
+        }
+        try {
+            renderer.presentIntermediateVk();
+            r.endedRemixFrame = true;
+        } catch (RuntimeException e) {
+            stereoPresentFailed = true;
+            LOGGER.error(P + "per-eye present failed; both eyes will share one Remix frame until "
+                    + "/remixvr stereo is toggled", e);
+        }
     }
 
     /** {@code RtxRemixMod.submitRemixFrameIfReady}, right before the overlay is drawn into the pass framebuffer. */
@@ -387,6 +496,8 @@ public final class VrCompat {
             signature = signature * 31 + r.submitIndex;
             signature = signature * 31 + (r.overlay ? 1 : 0);
             signature = signature * 31 + r.cameraPath.hashCode();
+            signature = signature * 31 + r.composite.hashCode();
+            signature = signature * 31 + (r.endedRemixFrame ? 1 : 0);
         }
         signature = signature * 31 + orphanSubmitsThisFrame;
 
@@ -408,6 +519,7 @@ public final class VrCompat {
         }
 
         // Next frame.
+        lastFramePassCount = passCount;
         frameIndex++;
         passCount = 0;
         submitsThisFrame = 0;
@@ -433,6 +545,8 @@ public final class VrCompat {
                 .append(" mode=").append(CONFIG.cameraMode)
                 .append(" proj=").append(CONFIG.projection)
                 .append(" temporalOff=").append(temporalOff)
+                .append(" stereoPresent=").append(CONFIG.stereoPresent && !stereoPresentFailed)
+                .append(" mask=").append(CONFIG.overlayDepthMask)
                 .append(" vrActive=").append(vivecraft.isVrActive());
         LOGGER.info(sb.toString());
         for (int i = 0; i < passCount; i++) {
@@ -440,7 +554,8 @@ public final class VrCompat {
             LOGGER.info(String.format(
                     "%s  #%d pass=%s vanilla=%s first=%s submit#=%d camera=%s overlay=%s "
                             + "cam=(%.4f, %.4f, %.4f) fwd=%s up=%s right=%s roll=%.2f "
-                            + "frustum=%s fovY=%.2f aspect=%.4f interop=%dx%d fbo=%d viewport=%dx%d",
+                            + "frustum=%s fovY=%.2f aspect=%.4f interop=%dx%d vkDone=%d composite=%s "
+                            + "endRemixFrame=%s fbo=%d viewport=%dx%d",
                     P, i, r.pass, r.vanilla, r.first, r.submitIndex, r.cameraPath, r.overlay,
                     r.camX, r.camY, r.camZ,
                     axis(r.position, 2, true), axis(r.position, 1, false), axis(r.position, 0, false),
@@ -448,7 +563,8 @@ public final class VrCompat {
                     r.pureProjection ? r.tangents.toString() : "impure",
                     r.pureProjection ? r.tangents.fovYDegrees() : 0.0f,
                     r.pureProjection ? r.tangents.aspect() : 0.0f,
-                    r.interopW, r.interopH, r.fbo, r.viewport[2], r.viewport[3]));
+                    r.interopW, r.interopH, r.vkDone, r.composite, r.endedRemixFrame,
+                    r.fbo, r.viewport[2], r.viewport[3]));
         }
     }
 

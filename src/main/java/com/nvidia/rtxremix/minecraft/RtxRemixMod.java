@@ -699,7 +699,10 @@ public class RtxRemixMod implements ClientModInitializer {
             mod.frameFailureLogged = false;
             if (remixTexture > 0 && mod.textureOverlay != null && isRtxEnabled()) {
                 com.nvidia.rtxremix.minecraft.vr.VrCompat.onOverlay(); // remix-vivecraft-compat
-                mod.textureOverlay.render(remixTexture);
+                // remix-vivecraft-compat: in VR passes the composite keeps Vivecraft's GUI and hands.
+                if (!com.nvidia.rtxremix.minecraft.vr.VrCompat.renderOverlay(remixTexture)) {
+                    mod.textureOverlay.render(remixTexture);
+                }
                 RemixWeatherRenderer weather = renderer.getWeatherRenderer();
                 if (weather != null) {
                     try (ProfileScope weatherScope = ProfileScope.begin("Weather")) {
@@ -712,6 +715,8 @@ public class RtxRemixMod implements ClientModInitializer {
                     }
                 }
             }
+            // remix-vivecraft-compat: one Remix frame per VR eye pass.
+            com.nvidia.rtxremix.minecraft.vr.VrCompat.afterComposite(renderer);
         }
     }
 

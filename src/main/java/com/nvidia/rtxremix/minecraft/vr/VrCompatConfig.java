@@ -49,6 +49,10 @@ final class VrCompatConfig {
     CameraMode cameraMode = CameraMode.AUTO;
     ProjectionSource projection = ProjectionSource.REBUILD;
     boolean transposeMatrices = false;
+    /** End a Remix frame after every VR eye pass but the last, so each eye gets its own render. */
+    boolean stereoPresent = true;
+    /** In VR passes, composite the Remix image only where GL drew nothing (keeps Vivecraft GUI/hands). */
+    boolean overlayDepthMask = true;
     /** One summary line per pass every N presented frames; 0 disables. */
     int logEveryFrames = 600;
     /** Log every frame for this many frames after the first VR frame (catch startup). */
@@ -76,8 +80,12 @@ final class VrCompatConfig {
         projection = parseEnum(ProjectionSource.class, props.getProperty("projection"), projection);
         transposeMatrices = Boolean.parseBoolean(
                 props.getProperty("transposeMatrices", String.valueOf(transposeMatrices)));
+        stereoPresent = Boolean.parseBoolean(props.getProperty("stereoPresent", String.valueOf(stereoPresent)));
+        overlayDepthMask = Boolean.parseBoolean(
+                props.getProperty("overlayDepthMask", String.valueOf(overlayDepthMask)));
         logEveryFrames = parseInt(props.getProperty("logEveryFrames"), logEveryFrames);
         logFirstVrFrames = parseInt(props.getProperty("logFirstVrFrames"), logFirstVrFrames);
+        save(); // writes keys added since the file was created
     }
 
     void save() {
@@ -94,6 +102,10 @@ final class VrCompatConfig {
                 w.write("projection=" + projection + "\n");
                 w.write("# transposeMatrices: diagnostic only, flips the matrix layout handed to Remix\n");
                 w.write("transposeMatrices=" + transposeMatrices + "\n");
+                w.write("# stereoPresent: one Remix frame per VR eye (false = both eyes get the first eye's image)\n");
+                w.write("stereoPresent=" + stereoPresent + "\n");
+                w.write("# overlayDepthMask: VR passes keep what Vivecraft drew (GUI, hands) over the Remix image\n");
+                w.write("overlayDepthMask=" + overlayDepthMask + "\n");
                 w.write("# logEveryFrames: one [RemixVR] line per pass every N frames, 0 = off\n");
                 w.write("logEveryFrames=" + logEveryFrames + "\n");
                 w.write("# logFirstVrFrames: log every pass of the first N VR frames\n");
@@ -107,7 +119,8 @@ final class VrCompatConfig {
     @Override
     public String toString() {
         return "enabled=" + enabled + " cameraMode=" + cameraMode + " projection=" + projection
-                + " transposeMatrices=" + transposeMatrices + " logEveryFrames=" + logEveryFrames
+                + " transposeMatrices=" + transposeMatrices + " stereoPresent=" + stereoPresent
+                + " overlayDepthMask=" + overlayDepthMask + " logEveryFrames=" + logEveryFrames
                 + " logFirstVrFrames=" + logFirstVrFrames;
     }
 

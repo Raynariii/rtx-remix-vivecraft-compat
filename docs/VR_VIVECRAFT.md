@@ -26,23 +26,39 @@ runtime; the first launch re-extracts it.
 | `cameraMode` | `AUTO` (pass matrices in Vivecraft VR passes), `ORIGINAL`, `PASS_MATRICES` | `AUTO` |
 | `projection` | `REBUILD` (pass frustum, near 0.05 / far 1000), `RAW` | `REBUILD` |
 | `transposeMatrices` | diagnostic only | `false` |
+| `stereoPresent` | end a Remix frame after every VR eye but the last, so each eye gets its own render | `true` |
+| `overlayDepthMask` | VR passes keep what Vivecraft drew (GUI panel, hands, controllers) over the Remix image | `true` |
 | `logEveryFrames` | one `[RemixVR]` line per pass every N frames, 0 = off | `600` |
 | `logFirstVrFrames` | log every pass of the first N VR frames | `3` |
 
-## Hotkeys (rebindable, category "RTX Remix VR")
+## Hotkeys (rebindable in Controls, category "RTX Remix VR")
 
-| Key | Action |
-| --- | --- |
-| Numpad 7 | cycle camera mode AUTO → ORIGINAL → PASS_MATRICES |
-| Numpad 4 | projection source REBUILD ↔ RAW |
-| Numpad 8 | dump one full frame (all passes, matrices, sizes, Remix settings) to the log |
-| Numpad 9 | denoiser + upscaler off / restore (`rtx.useDenoiser`, `rtx.upscalerType`) |
+| Key | Command | Action |
+| --- | --- | --- |
+| F6 | `/remixvr mode` | cycle camera mode AUTO → ORIGINAL → PASS_MATRICES |
+| F7 | `/remixvr projection` | projection source REBUILD ↔ RAW |
+| F9 | `/remixvr dump` | dump one full frame (all passes, matrices, sizes, Remix settings) to the log |
+| F10 | `/remixvr temporal` | denoiser + upscaler off / restore (`rtx.useDenoiser`, `rtx.upscalerType`) |
+| — | `/remixvr stereo` | toggle `stereoPresent` |
+| — | `/remixvr mask` | toggle `overlayDepthMask` |
+| — | `/remixvr status` | show the current config |
 
-Every switch is logged with the frame number.
+Commands work from Vivecraft's in-headset keyboard. Every switch is logged with
+the frame number.
+
+## Why each eye needs its own Remix frame
+
+The runtime renders one frame per `Present`. A second `Submit` before it hands
+back the first image (the per-pass `vkDone` value in the log does not advance),
+so both eyes showed the left eye. With `stereoPresent` every eye pass but the
+last ends its Remix frame with a `Present` that skips the swapchain. Remix's
+temporal history (denoiser, DLSS) now alternates between the eyes, so expect
+smearing in motion until the per-eye history work.
 
 ## Test scenario
 
-Enter the test world → stand still 5 s → Numpad 8 → turn head left/right →
-tilt head sideways → close each eye in turn → Numpad 9, look, Numpad 8 →
-Numpad 7 (ORIGINAL), Numpad 8 → quit. Send `logs/latest.log` (grep
+Enter the test world → stand still 5 s → F9 → turn head left/right → tilt head
+sideways → close each eye in turn → open the menu, look at your hands →
+F10, look, F9 → `/remixvr stereo`, look, F9, `/remixvr stereo` →
+`/remixvr mask`, look, `/remixvr mask` → quit. Send `logs/latest.log` (grep
 `[RemixVR]`) and a note of what each eye shows.
