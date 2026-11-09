@@ -1,0 +1,42 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 remix-vivecraft-compat contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# remix-vivecraft-compat: builds a self-contained win64 JAR (runtime bundled)
+# for every push to a vr/** branch and uploads it as an artifact.
+
+name: vr-build
+
+on:
+  push:
+    branches: ['vr/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: "21"
+      # `package` depends on `build`, which runs the tests.
+      - name: Build, test and package (win64)
+        run: '& "$env:GITHUB_WORKSPACE\gradlew.bat" package -Parch=win64'
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: remix-vivecraft-compat-${{ github.sha }}
+          path: build/distributions/*.jar
+          if-no-files-found: error
+          compression-level: 0
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: test-reports
+          path: build/reports/tests/
+          if-no-files-found: ignore

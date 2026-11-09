@@ -1,6 +1,8 @@
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
+ *
+ * Modified by remix-vivecraft-compat contributors (2026): VR camera hooks, marked "remix-vivecraft-compat".
  */
 package com.nvidia.rtxremix.minecraft.weather;
 
@@ -84,6 +86,15 @@ public final class RemixWeatherRenderer {
                 aspect,
                 NEAR_PLANE,
                 FAR_PLANE);
+    }
+
+    /**
+     * remix-vivecraft-compat: camera-relative view rotation and OpenGL projection
+     * of the current pass, for passes whose Remix camera comes from pass matrices.
+     */
+    public void updateCameraMatrices(Matrix4f cameraRelativeView, Matrix4f projectionGl) {
+        modelView = new Matrix4f(cameraRelativeView);
+        projection = new Matrix4f(projectionGl);
     }
 
     public void capture(BuiltBuffer buffer, Identifier texture) {

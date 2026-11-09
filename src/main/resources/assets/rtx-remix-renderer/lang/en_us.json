@@ -2,6 +2,11 @@
   "key.rtxremix.toggleHeldLights": "Toggle Held Lights",
   "key.rtxremix.toggleRtx": "Toggle RTX Rendering",
   "category.rtxremix": "RTX Remix",
+  "category.rtxremix.vr": "RTX Remix VR (Vivecraft)",
+  "key.rtxremix.vr.cycleCameraMode": "VR: Cycle Camera Mode",
+  "key.rtxremix.vr.cycleProjection": "VR: Cycle Projection Source",
+  "key.rtxremix.vr.dumpFrame": "VR: Dump Frame To Log",
+  "key.rtxremix.vr.toggleTemporal": "VR: Toggle Denoiser + Upscaler",
 
   "block.rtx-remix-renderer.copper_beacon": "Copper Beacon",
   "container.rtx-remix-renderer.copper_beacon": "Copper Beacon Controls",

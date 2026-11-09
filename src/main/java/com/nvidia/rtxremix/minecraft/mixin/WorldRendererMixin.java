@@ -1,6 +1,8 @@
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
+ *
+ * Modified by remix-vivecraft-compat contributors (2026): VR camera hooks, marked "remix-vivecraft-compat".
  */
 package com.nvidia.rtxremix.minecraft.mixin;
 
@@ -472,6 +474,8 @@ public abstract class WorldRendererMixin
         if (mod != null && mod.getRenderer() != null) {
             mod.getRenderer().beginEntityFrame();
         }
+        // remix-vivecraft-compat: capture this pass's view/projection (Vivecraft has already replaced them).
+        com.nvidia.rtxremix.minecraft.vr.VrCompat.onWorldRenderHead(camera, positionMatrix, projectionMatrix);
     }
 
     @Inject(method = "render", at = @At("RETURN"))

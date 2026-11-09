@@ -1,6 +1,8 @@
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
+ *
+ * Modified by remix-vivecraft-compat contributors (2026): VR camera hooks, marked "remix-vivecraft-compat".
  */
 package com.nvidia.rtxremix.minecraft;
 
@@ -1222,6 +1224,11 @@ public class RemixRenderer {
     private void updateCamera(Camera camera, float tickDelta) {
         try {
             Vec3d pos = camera.getPos();
+            // remix-vivecraft-compat: camera from the current pass matrices (Vivecraft eye pose + OpenVR frustum).
+            if (com.nvidia.rtxremix.minecraft.vr.VrCompat.applyCamera(remixApi, weatherRenderer, camera, pos)) {
+                updateCameraMedium(camera, pos, viewDistanceFade.layerStrength(ClientViewDistance.chunks()), tickDelta);
+                return;
+            }
             float pitch = camera.getPitch();
             float yaw = camera.getYaw();
     
@@ -1351,6 +1358,7 @@ public class RemixRenderer {
     
     private void submitFrame() {
         remixApi.submit(null);
+        com.nvidia.rtxremix.minecraft.vr.VrCompat.onSubmit(false); // remix-vivecraft-compat
     }
     
     /**
@@ -1361,6 +1369,7 @@ public class RemixRenderer {
      * per run rather than once per frame.
      */
     public void presentFrameVk() {
+        com.nvidia.rtxremix.minecraft.vr.VrCompat.onPresent(); // remix-vivecraft-compat: frame boundary
         if (!FAULT_IN_REMIX_CALL.isEmpty() && presentedFrames == FAULT_IN_REMIX_CALL_FRAME) {
             faultInRemixCall();
         }
@@ -1427,6 +1436,7 @@ public class RemixRenderer {
         try (ProfileScope ignored = ProfileScope.begin("Interop.VKToGL")) {
             // must be called after Submit(), which allocates the image
             InteropInfo interopInfo = remixApi.dxvkGetInteropInfo();
+            com.nvidia.rtxremix.minecraft.vr.VrCompat.onInteropImage(interopInfo.width, interopInfo.height); // remix-vivecraft-compat
             interopGlVk.recreateImagesIf(interopInfo);
 
             // to blit, we need to wait for VK to finish writing into GPU image
@@ -1448,7 +1458,8 @@ public class RemixRenderer {
         if (!submitFrameCalled) {
             // if there was no submitFrame, then interop image might not be allocated yet
             // we must have a image to blit into (e.g. UI if there's no world)
-            submitFrame();
+            remixApi.submit(null);
+            com.nvidia.rtxremix.minecraft.vr.VrCompat.onSubmit(true); // remix-vivecraft-compat
         }
 
         // must be called after Submit(), which allocates the image

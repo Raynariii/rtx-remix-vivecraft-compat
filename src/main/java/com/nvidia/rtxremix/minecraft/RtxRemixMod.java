@@ -1,6 +1,8 @@
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
+ *
+ * Modified by remix-vivecraft-compat contributors (2026): VR camera hooks, marked "remix-vivecraft-compat".
  */
 package com.nvidia.rtxremix.minecraft;
 
@@ -349,6 +351,7 @@ public class RtxRemixMod implements ClientModInitializer {
         remixAvailable = checkRemixAvailability();
         
         registerCommands();
+        com.nvidia.rtxremix.minecraft.vr.VrCompat.init(); // remix-vivecraft-compat
         // Particle types are a client-side registry, so they stay here. Blocks
         // are synced and register in RtxRemixCommonMod instead.
         RapidFoamParticles.register();
@@ -695,6 +698,7 @@ public class RtxRemixMod implements ClientModInitializer {
             }
             mod.frameFailureLogged = false;
             if (remixTexture > 0 && mod.textureOverlay != null && isRtxEnabled()) {
+                com.nvidia.rtxremix.minecraft.vr.VrCompat.onOverlay(); // remix-vivecraft-compat
                 mod.textureOverlay.render(remixTexture);
                 RemixWeatherRenderer weather = renderer.getWeatherRenderer();
                 if (weather != null) {
